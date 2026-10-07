@@ -26,6 +26,8 @@ body:after{width:300px;height:150px;right:-70px;top:170px;background:radial-grad
 @media(max-width:760px){.sheetgrid,.priority-grid{grid-template-columns:1fr}.status-row{grid-template-columns:1fr}.mini-grid{grid-template-columns:1fr}.attack-row{grid-template-columns:1fr}}
 /* Decoração limpa: mantém a estrutura original e usa apenas cores, molduras e textura. */
 @media(max-width:760px){.grid{grid-template-columns:1fr}.attrs{grid-template-columns:1fr}.portrait{height:300px}.top{padding-right:8px}.wrap:before,.wrap:after{width:10px}}
+
+.master-list{display:grid;gap:10px;margin-top:12px}.master-character{background:linear-gradient(#fff9df,#f1dfaa);border:3px solid var(--wood);border-radius:10px;padding:12px;display:flex;align-items:center;justify-content:space-between;gap:12px}.master-character strong{display:block;color:#5b3b17}.master-character small{display:block;color:#80602b;margin-top:3px}.master-actions{display:flex;gap:8px;flex-wrap:wrap}.master-actions .btn{padding:7px 11px}.master-empty{padding:12px;border:3px dashed #a77422;border-radius:9px;background:#fff8d8;color:#704718}.master-loading{padding:12px;color:#704718;font-weight:700}.master-viewing{margin-top:12px;padding:10px 13px;border-radius:9px;background:#cceefa;border:3px solid #4c91ad;font-weight:700}.master-back{margin-top:10px}
 </style></head>
 <body><div class="wrap">
 <header class="top"><div><div class="logo">Hora de Aventura RPG</div><div class="subtitle">Ficha de personagem</div></div><div class="bar"><button class="btn dark" id="masterBtn">Modo Mestre</button><button class="btn" id="saveBtn">Salvar</button><button class="btn danger" id="clearBtn">Limpar</button></div></header>
@@ -59,7 +61,7 @@ body:after{width:300px;height:150px;right:-70px;top:170px;background:radial-grad
 <div class="statbox"><label>Estado</label><input id="state2" placeholder="Estado..."></div>
 <div class="statbox"><label>Estado</label><input id="state3" placeholder="Estado..."></div>
 </div>
-<div class="card master" id="masterPanel"><h2 class="section-title">Área do Mestre</h2><div class="notice">Modo Mestre desbloqueado.</div><div class="field" style="margin-top:12px"><label>Observações do Mestre</label><input id="masterNotes" placeholder="Anotações..." /></div></div>
+<div class="card master" id="masterPanel"><h2 class="section-title">Área do Mestre</h2><div class="notice">Modo Mestre desbloqueado.</div><div class="master-actions" style="margin-top:12px"><button class="btn dark" id="refreshMasterBtn" type="button">🔄 Atualizar fichas</button><button class="btn" id="mySheetBtn" type="button">👤 Minha ficha</button></div><div id="masterViewing" class="master-viewing hidden"></div><div id="masterList" class="master-list"><div class="master-loading">Carregando fichas...</div></div><div class="field" style="margin-top:12px"><label>Observações do Mestre</label><input id="masterNotes" placeholder="Anotações..." /></div></div>
 <div class="footer">Tudo é salvo neste navegador neste dispositivo.</div>
 </div>
 
@@ -144,7 +146,7 @@ async function saveRemote(showAlert=true){
 
 async function loadRemote(){
   if(!characterId) return;
-  const {data:rows,error}=await sb.from('characters').select('character_id,data').eq('character_id',characterId).limit(1);
+  const {data:rows,error}=await sb.from('characters').select('character_id,data,updated_at').eq('character_id',characterId).limit(1);
   if(error){console.error('Supabase:',error);return}
   if(rows&&rows[0]&&rows[0].data){
     data=Object.assign({},blank,rows[0].data);
@@ -154,7 +156,51 @@ async function loadRemote(){
   }
 }
 
+function masterEscape(s){return String(s??'').replaceAll('&','&amp;').replaceAll('\"','&quot;').replaceAll('<','&lt;').replaceAll('>','&gt;')}
+
+async function loadMasterList(){
+  const list=$('masterList');
+  if(!list) return;
+  list.innerHTML='<div class=\"master-loading\">Carregando fichas...</div>';
+  const {data:rows,error}=await sb.from('characters').select('character_id,data,updated_at').order('updated_at',{ascending:false});
+  if(error){
+    console.error('Supabase:',error);
+    list.innerHTML='<div class=\"master-empty\">Não foi possível carregar as fichas. Abra o console do navegador (F12) para ver o erro.</div>';
+    return;
+  }
+  if(!rows||!rows.length){
+    list.innerHTML='<div class=\"master-empty\">Nenhuma ficha foi salva no banco ainda. Crie uma ficha e espere o salvamento automático.</div>';
+    return;
+  }
+  list.innerHTML=rows.map(row=>{
+    const d=row.data||{};
+    const nome=d.charName||'Personagem sem nome';
+    const jogador=d.player||'Jogador não informado';
+    const when=row.updated_at?new Date(row.updated_at).toLocaleString('pt-BR'):'data desconhecida';
+    return `<div class=\"master-character\"><div><strong>${masterEscape(nome)}</strong><small>👤 ${masterEscape(jogador)} · 🕐 ${masterEscape(when)}</small></div><div class=\"master-actions\"><button class=\"btn dark view-character\" type=\"button\" data-id=\"${masterEscape(row.character_id)}\">👁️ Ver ficha</button></div></div>`;
+  }).join('');
+  list.querySelectorAll('.view-character').forEach(btn=>{
+    btn.onclick=()=>openMasterCharacter(btn.dataset.id);
+  });
+}
+
+async function openMasterCharacter(id){
+  characterId=id;
+  const viewing=$('masterViewing');
+  if(viewing){viewing.textContent='Carregando ficha...';viewing.classList.remove('hidden')}
+  await loadRemote();
+  if(viewing) viewing.textContent='👁️ Visualizando esta ficha como Mestre. Use “Minha ficha” para voltar à sua ficha.';
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
 $('saveBtn').onclick=()=>saveRemote(true);
+if($('refreshMasterBtn')) $('refreshMasterBtn').onclick=loadMasterList;
+if($('mySheetBtn')) $('mySheetBtn').onclick=()=>{
+  characterId=localStorage.getItem(IDKEY)||'';
+  if(characterId) loadRemote();
+  const viewing=$('masterViewing');
+  if(viewing) viewing.classList.add('hidden');
+};
 
 document.addEventListener('input',e=>{
   if(e.target.matches('input,textarea')) queueSync();
@@ -186,7 +232,10 @@ $('clearBtn').onclick=()=>{
 
 $('masterBtn').onclick=()=>{
   let p=prompt('Senha do Mestre:');
-  if(p==='147258')$('masterPanel').classList.toggle('show');
+  if(p==='147258'){
+    $('masterPanel').classList.toggle('show');
+    if($('masterPanel').classList.contains('show')) loadMasterList();
+  }
   else if(p!==null)alert('Senha incorreta.')
 };
 
