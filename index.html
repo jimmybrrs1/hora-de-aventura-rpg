@@ -1980,7 +1980,879 @@ updateCodeDisplay();
 showScreen("homeScreen");
 
 </script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
+<script>
+/* =========================================================
+   HORA DE AVENTURA RPG — PARTE 3
+   SUPABASE + FICHAS + AUTO-SAVE
+========================================================= */
+
+const SUPABASE_URL = "https://oefkvtytquczuwuelqys.supabase.co";
+const SUPABASE_KEY = "sb_publishable_0gdjKbBkzfpGl0RiF5E6Dg_7veFGybY";
+
+const sb = window.supabase.createClient(
+  SUPABASE_URL,
+  SUPABASE_KEY
+);
+
+const KEY = "ooo_rpg_ficha_v6";
+const IDKEY = "ooo_rpg_character_id";
+
+let characterId = localStorage.getItem(IDKEY) || "";
+let data = createBlankData();
+let saveTimer = null;
+
+
+/* =========================================================
+   UTILITÁRIOS
+========================================================= */
+
+function $(id) {
+  return document.getElementById(id);
+}
+
+function createBlankData() {
+  return {
+    name: "",
+    player: "",
+    concept: "",
+    history: "",
+    movements: "",
+    equipment: "",
+
+    images: ["", ""],
+
+    attributes: [
+      {
+        name: "",
+        value: "",
+        feats: ["", "", ""]
+      },
+      {
+        name: "",
+        value: "",
+        feats: ["", "", ""]
+      },
+      {
+        name: "",
+        value: "",
+        feats: ["", "", ""]
+      }
+    ],
+
+    attacks: [
+      { name: "", bonus: "", damage: "" },
+      { name: "", bonus: "", damage: "" },
+      { name: "", bonus: "", damage: "" }
+    ],
+
+    attacksNotes: "",
+    spells: "",
+    inventory: "",
+
+    heroPoints: "",
+    life: "",
+    xp: "",
+
+    notes: "",
+
+    states: ["", "", ""]
+  };
+}
+
+
+function normalizeData(input) {
+  const blank = createBlankData();
+
+  if (!input || typeof input !== "object") {
+    return blank;
+  }
+
+  const result = {
+    ...blank,
+    ...input
+  };
+
+  result.images = Array.isArray(input.images)
+    ? [input.images[0] || "", input.images[1] || ""]
+    : ["", ""];
+
+  result.attributes = blank.attributes.map((attr, i) => {
+    const source = Array.isArray(input.attributes)
+      ? (input.attributes[i] || {})
+      : {};
+
+    return {
+      name: source.name || "",
+      value: source.value || "",
+      feats: [
+        source.feats?.[0] || "",
+        source.feats?.[1] || "",
+        source.feats?.[2] || ""
+      ]
+    };
+  });
+
+  result.attacks = blank.attacks.map((attack, i) => {
+    const source = Array.isArray(input.attacks)
+      ? (input.attacks[i] || {})
+      : {};
+
+    return {
+      name: source.name || "",
+      bonus: source.bonus || "",
+      damage: source.damage || ""
+    };
+  });
+
+  result.states = [
+    input.states?.[0] || "",
+    input.states?.[1] || "",
+    input.states?.[2] || ""
+  ];
+
+  return result;
+}
+
+
+function saveLocal() {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(data));
+
+    if (characterId) {
+      localStorage.setItem(IDKEY, characterId);
+    }
+  } catch (error) {
+    console.error("Erro ao salvar localmente:", error);
+  }
+}
+
+
+function esc(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+
+function updateCodeDisplay() {
+  const el = $("currentCode");
+
+  if (el) {
+    el.textContent = characterId || "Ainda não criado";
+  }
+}
+
+
+function showScreen(id) {
+  [
+    "homeScreen",
+    "enterScreen",
+    "masterLoginScreen",
+    "characterScreen",
+    "masterScreen"
+  ].forEach(screenId => {
+    const screen = $(screenId);
+
+    if (screen) {
+      screen.classList.add("hidden");
+    }
+  });
+
+  const target = $(id);
+
+  if (target) {
+    target.classList.remove("hidden");
+  }
+}
+
+
+/* =========================================================
+   RENDERIZAÇÃO
+========================================================= */
+
+function render() {
+
+  $("charName").value = data.name || "";
+  $("player").value = data.player || "";
+  $("desc").value = data.concept || "";
+  $("history").value = data.history || "";
+  $("moves").value = data.movements || "";
+  $("equipment").value = data.equipment || "";
+
+  $("attacksNotes").value = data.attacksNotes || "";
+  $("spells").value = data.spells || "";
+  $("inventory").value = data.inventory || "";
+
+  $("heroPoints").value = data.heroPoints || "";
+  $("life").value = data.life || "";
+  $("xp").value = data.xp || "";
+
+  $("notes").value = data.notes || "";
+
+  $("state1").value = data.states[0] || "";
+  $("state2").value = data.states[1] || "";
+  $("state3").value = data.states[2] || "";
+
+
+  /* =======================================================
+     IMAGENS
+  ======================================================= */
+
+  [
+    ["slot1", "img1", 0],
+    ["slot2", "img2", 1]
+  ].forEach(([slotId, imgId, index]) => {
+
+    const slot = $(slotId);
+    const img = $(imgId);
+
+    if (!slot || !img) return;
+
+    if (data.images[index]) {
+      img.src = data.images[index];
+      img.style.display = "block";
+      slot.classList.add("has-image");
+    } else {
+      img.removeAttribute("src");
+      img.style.display = "none";
+      slot.classList.remove("has-image");
+    }
+  });
+
+
+  /* =======================================================
+     ATRIBUTOS
+  ======================================================= */
+
+  const attrsContainer = $("attrs");
+
+  if (attrsContainer) {
+
+    attrsContainer.innerHTML = "";
+
+    data.attributes.forEach((attr, attrIndex) => {
+
+      const wrapper = document.createElement("div");
+
+      wrapper.className = "attr";
+
+      wrapper.innerHTML = `
+        <div class="attr-title">
+
+          <input
+            class="attribute-name"
+            data-attr="${attrIndex}"
+            placeholder="Nome do atributo"
+            value="${esc(attr.name)}"
+          >
+
+          <input
+            class="attribute-value"
+            data-attr="${attrIndex}"
+            placeholder="Valor"
+            value="${esc(attr.value)}"
+          >
+
+        </div>
+
+        <div class="feats">
+
+          ${[0, 1, 2].map(featIndex => `
+            <div class="feat">
+
+              <b>${featIndex + 1}</b>
+
+              <input
+                data-attr="${attrIndex}"
+                data-feat="${featIndex}"
+                placeholder="Proeza"
+                value="${esc(attr.feats[featIndex])}"
+              >
+
+            </div>
+          `).join("")}
+
+        </div>
+      `;
+
+      attrsContainer.appendChild(wrapper);
+    });
+
+
+    attrsContainer.querySelectorAll(".attribute-name")
+      .forEach(input => {
+
+        input.addEventListener("input", () => {
+
+          const index = Number(input.dataset.attr);
+
+          data.attributes[index].name = input.value;
+
+          queueSave();
+        });
+      });
+
+
+    attrsContainer.querySelectorAll(".attribute-value")
+      .forEach(input => {
+
+        input.addEventListener("input", () => {
+
+          const index = Number(input.dataset.attr);
+
+          data.attributes[index].value = input.value;
+
+          queueSave();
+        });
+      });
+
+
+    attrsContainer.querySelectorAll(".feat input")
+      .forEach(input => {
+
+        input.addEventListener("input", () => {
+
+          const attrIndex = Number(input.dataset.attr);
+          const featIndex = Number(input.dataset.feat);
+
+          data.attributes[attrIndex].feats[featIndex] =
+            input.value;
+
+          queueSave();
+        });
+      });
+  }
+
+
+  /* =======================================================
+     ATAQUES
+  ======================================================= */
+
+  ["attack1", "attack2", "attack3"].forEach((id, index) => {
+
+    const input = $(id);
+
+    if (!input) return;
+
+    input.value = data.attacks[index]?.name || "";
+  });
+
+
+  updateCodeDisplay();
+}
+
+
+/* =========================================================
+   COLETAR DADOS DA TELA
+========================================================= */
+
+function collect() {
+
+  if ($("charName")) data.name = $("charName").value;
+  if ($("player")) data.player = $("player").value;
+  if ($("desc")) data.concept = $("desc").value;
+  if ($("history")) data.history = $("history").value;
+  if ($("moves")) data.movements = $("moves").value;
+  if ($("equipment")) data.equipment = $("equipment").value;
+
+  if ($("attacksNotes")) data.attacksNotes = $("attacksNotes").value;
+  if ($("spells")) data.spells = $("spells").value;
+  if ($("inventory")) data.inventory = $("inventory").value;
+
+  if ($("heroPoints")) data.heroPoints = $("heroPoints").value;
+  if ($("life")) data.life = $("life").value;
+  if ($("xp")) data.xp = $("xp").value;
+
+  if ($("notes")) data.notes = $("notes").value;
+
+  if ($("state1")) data.states[0] = $("state1").value;
+  if ($("state2")) data.states[1] = $("state2").value;
+  if ($("state3")) data.states[2] = $("state3").value;
+
+
+  ["attack1", "attack2", "attack3"].forEach((id, index) => {
+
+    const input = $(id);
+
+    if (!input) return;
+
+    if (!data.attacks[index]) {
+      data.attacks[index] = {
+        name: "",
+        bonus: "",
+        damage: ""
+      };
+    }
+
+    data.attacks[index].name = input.value;
+  });
+
+
+  if ($("attrs")) {
+
+    $("attrs")
+      .querySelectorAll(".attribute-name")
+      .forEach(input => {
+
+        const index = Number(input.dataset.attr);
+
+        data.attributes[index].name = input.value;
+      });
+
+
+    $("attrs")
+      .querySelectorAll(".attribute-value")
+      .forEach(input => {
+
+        const index = Number(input.dataset.attr);
+
+        data.attributes[index].value = input.value;
+      });
+
+
+    $("attrs")
+      .querySelectorAll(".feat input")
+      .forEach(input => {
+
+        const attrIndex = Number(input.dataset.attr);
+        const featIndex = Number(input.dataset.feat);
+
+        data.attributes[attrIndex].feats[featIndex] =
+          input.value;
+      });
+  }
+
+  saveLocal();
+
+  return data;
+}
+
+
+/* =========================================================
+   SUPABASE — SALVAR
+========================================================= */
+
+async function saveRemote(showMessage = false) {
+
+  collect();
+
+  if (!characterId) {
+    characterId = crypto.randomUUID();
+  }
+
+  const payload = {
+    character_id: characterId,
+    data: data,
+    updated_at: new Date().toISOString()
+  };
+
+  const { error } = await sb
+    .from("characters")
+    .upsert(payload, {
+      onConflict: "character_id"
+    });
+
+  if (error) {
+
+    console.error("Erro Supabase:", error);
+
+    if (showMessage) {
+      alert("Erro ao salvar a ficha:\n" + error.message);
+    }
+
+    return false;
+  }
+
+  localStorage.setItem(IDKEY, characterId);
+
+  updateCodeDisplay();
+
+  if (showMessage) {
+    alert("Ficha salva com sucesso! ❤️");
+  }
+
+  return true;
+}
+
+
+/* =========================================================
+   SUPABASE — CARREGAR
+========================================================= */
+
+async function loadRemote(id) {
+
+  const cleanId = String(id || "").trim();
+
+  if (!cleanId) {
+    return false;
+  }
+
+  const { data: row, error } = await sb
+    .from("characters")
+    .select("character_id,data,updated_at")
+    .eq("character_id", cleanId)
+    .maybeSingle();
+
+  if (error) {
+
+    console.error("Erro ao carregar:", error);
+
+    alert("Erro ao carregar a ficha:\n" + error.message);
+
+    return false;
+  }
+
+  if (!row) {
+
+    alert("Não encontrei nenhuma ficha com esse código.");
+
+    return false;
+  }
+
+  characterId = row.character_id;
+  data = normalizeData(row.data);
+
+  saveLocal();
+
+  render();
+
+  return true;
+}
+
+
+/* =========================================================
+   AUTO-SAVE
+========================================================= */
+
+function queueSave() {
+
+  collect();
+
+  clearTimeout(saveTimer);
+
+  saveTimer = setTimeout(() => {
+
+    saveRemote(false);
+
+  }, 900);
+}
+
+
+[
+  "charName",
+  "player",
+  "desc",
+  "history",
+  "moves",
+  "equipment",
+  "attack1",
+  "attack2",
+  "attack3",
+  "attacksNotes",
+  "spells",
+  "inventory",
+  "heroPoints",
+  "life",
+  "xp",
+  "notes",
+  "state1",
+  "state2",
+  "state3"
+].forEach(id => {
+
+  const element = $(id);
+
+  if (!element) return;
+
+  element.addEventListener("input", queueSave);
+});
+
+
+/* =========================================================
+   NOVA FICHA
+========================================================= */
+
+$("newCharacterBtn").addEventListener("click", async () => {
+
+  characterId = crypto.randomUUID();
+
+  data = createBlankData();
+
+  saveLocal();
+
+  render();
+
+  showScreen("characterScreen");
+
+  await saveRemote(false);
+
+});
+
+
+/* =========================================================
+   ENTRAR NA MINHA FICHA
+========================================================= */
+
+$("enterCharacterBtn").addEventListener("click", () => {
+
+  $("characterCode").value = "";
+
+  showScreen("enterScreen");
+
+});
+
+
+$("enterCodeBtn").addEventListener("click", async () => {
+
+  const code = $("characterCode").value.trim();
+
+  if (!code) {
+
+    alert("Digite o código da ficha.");
+
+    return;
+  }
+
+  const button = $("enterCodeBtn");
+
+  if (button) {
+    button.disabled = true;
+  }
+
+  const ok = await loadRemote(code);
+
+  if (button) {
+    button.disabled = false;
+  }
+
+  if (ok) {
+    showScreen("characterScreen");
+  }
+
+});
+
+
+$("backHomeBtn").addEventListener("click", () => {
+
+  showScreen("homeScreen");
+
+});
+
+
+/* =========================================================
+   MODO MESTRE — LOGIN
+========================================================= */
+
+$("masterHomeBtn").addEventListener("click", () => {
+
+  showScreen("homeScreen");
+
+});
+
+
+$("masterLoginBtn").addEventListener("click", () => {
+
+  const password = $("masterPassword").value;
+
+  if (password !== "147258") {
+
+    alert("Senha incorreta.");
+
+    return;
+  }
+
+  $("masterPassword").value = "";
+
+  showScreen("masterScreen");
+
+  if (typeof loadMasterSheets === "function") {
+    loadMasterSheets();
+  }
+
+});
+
+
+/* =========================================================
+   FICHA
+========================================================= */
+
+$("backToHomeBtn").addEventListener("click", () => {
+
+  showScreen("homeScreen");
+
+});
+
+
+$("saveBtn").addEventListener("click", async () => {
+
+  await saveRemote(true);
+
+});
+
+
+$("clearBtn").addEventListener("click", () => {
+
+  const confirmClear =
+    confirm("Tem certeza que deseja limpar esta ficha?");
+
+  if (!confirmClear) {
+    return;
+  }
+
+  data = createBlankData();
+
+  saveLocal();
+
+  render();
+
+  queueSave();
+
+});
+
+
+$("showCodeBtn").addEventListener("click", () => {
+
+  if (!characterId) {
+
+    alert("Esta ficha ainda não possui um código.");
+
+    return;
+  }
+
+  alert(
+    "Código da sua ficha:\n\n" +
+    characterId +
+    "\n\nGuarde esse código para entrar novamente."
+  );
+
+});
+
+
+/* =========================================================
+   UPLOAD DE IMAGENS
+========================================================= */
+
+function setupImageUpload(inputId, imgId, index, slotId) {
+
+  const input = $(inputId);
+  const img = $(imgId);
+  const slot = $(slotId);
+
+  if (!input || !img || !slot) {
+    return;
+  }
+
+  input.addEventListener("change", () => {
+
+    const file = input.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    const reader = new FileReader();
+
+    reader.onload = () => {
+
+      data.images[index] = reader.result;
+
+      img.src = reader.result;
+      img.style.display = "block";
+
+      slot.classList.add("has-image");
+
+      saveLocal();
+
+      queueSave();
+    };
+
+    reader.readAsDataURL(file);
+
+  });
+
+}
+
+
+setupImageUpload("image1", "img1", 0, "slot1");
+setupImageUpload("image2", "img2", 1, "slot2");
+
+
+/* =========================================================
+   REMOVER IMAGENS
+========================================================= */
+
+document
+  .querySelectorAll("[data-slot]")
+  .forEach(button => {
+
+    button.addEventListener("click", () => {
+
+      const index = Number(button.dataset.slot) - 1;
+
+      if (index < 0 || index > 1) {
+        return;
+      }
+
+      data.images[index] = "";
+
+      const img = $(`img${index + 1}`);
+      const slot = $(`slot${index + 1}`);
+      const input = $(`image${index + 1}`);
+
+      if (img) {
+        img.removeAttribute("src");
+        img.style.display = "none";
+      }
+
+      if (slot) {
+        slot.classList.remove("has-image");
+      }
+
+      if (input) {
+        input.value = "";
+      }
+
+      saveLocal();
+
+      queueSave();
+
+    });
+
+  });
+
+
+/* =========================================================
+   CARREGAR DADOS LOCAIS
+========================================================= */
+
+try {
+
+  const saved = localStorage.getItem(KEY);
+
+  if (saved) {
+    data = normalizeData(JSON.parse(saved));
+  }
+
+} catch (error) {
+
+  console.error("Erro ao carregar dados locais:", error);
+
+}
+
+
+updateCodeDisplay();
+
+render();
+
+showScreen("homeScreen");
+
+</script>
+  
 <!-- =========================================================
      TELA DO MESTRE
 ========================================================= -->
