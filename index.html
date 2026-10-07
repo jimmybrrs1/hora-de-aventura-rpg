@@ -62,18 +62,134 @@ body:after{width:300px;height:150px;right:-70px;top:170px;background:radial-grad
 <div class="card master" id="masterPanel"><h2 class="section-title">Área do Mestre</h2><div class="notice">Modo Mestre desbloqueado.</div><div class="field" style="margin-top:12px"><label>Observações do Mestre</label><input id="masterNotes" placeholder="Anotações..." /></div></div>
 <div class="footer">Tudo é salvo neste navegador neste dispositivo.</div>
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
+const SUPABASE_URL='https://oefkvtytquczuwuelqys.supabase.co';
+const SUPABASE_KEY='sb_publishable_0gdjKbBkzfpGl0RiF5E6Dg_7veFGybY';
+const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+
 const KEY='ooo_rpg_ficha_v6';
+const IDKEY='hora_aventura_rpg_character_id';
 const defaults=[{name:'Atributo 1',num:'0',feats:['Proeza 1','Proeza 2','Proeza 3']},{name:'Atributo 2',num:'0',feats:['Proeza 1','Proeza 2','Proeza 3']},{name:'Atributo 3',num:'0',feats:['Proeza 1','Proeza 2','Proeza 3']}];
-const blank={charName:'',player:'',desc:'',history:'',moves:'',equipment:'',inventory:'',heroPoints:'0',life:'0',xp:'0',state1:'',state2:'',state3:'',attack1:'',attack2:'',attack3:'',attacksNotes:'',spells:'',notes:'',attrs:defaults,masterNotes:'',image1:'',image2:''};
+const blank={charName:'',player:'',desc:'',history:'',moves:'',equipment:'',inventory:'',heroPoints:'0',life:'0',xp:'0',state1:'',state2:'',state3:'',attack1:'',attack2:'',attack3:'',attacksNotes:'',spells:'',notes:'',attrs:structuredClone(defaults),masterNotes:'',image1:'',image2:''};
+
 let data=Object.assign({},blank,JSON.parse(localStorage.getItem(KEY)||'null')||{});
+if(!Array.isArray(data.attrs)) data.attrs=structuredClone(defaults);
+
+const params=new URLSearchParams(location.search);
+let characterId=params.get('id')||localStorage.getItem(IDKEY)||'';
+if(characterId) localStorage.setItem(IDKEY,characterId);
+
 const $=id=>document.getElementById(id);
-function render(){['charName','player','desc','history','moves','equipment','inventory','heroPoints','life','xp','state1','state2','state3','masterNotes','attack1','attack2','attack3','attacksNotes','spells','notes'].forEach(k=>{if($(k))$(k).value=data[k]??''});let a=$('attrs');a.innerHTML='';data.attrs.forEach((x,i)=>{let d=document.createElement('div');d.className='attr';d.innerHTML=`<div class="attr-title"><input data-k="name" data-i="${i}" value="${esc(x.name)}"><input data-k="num" data-i="${i}" value="${esc(x.num)}" type="text"></div><div class="feats">${x.feats.map((f,j)=>`<div class="feat"><b>${j+1}</b><input data-k="feat" data-i="${i}" data-j="${j}" value="${esc(f)}"></div>`).join('')}</div>`;a.appendChild(d)});['1','2'].forEach(n=>{let slot=$('slot'+n),img=$('img'+n);if(data['image'+n]){img.src=data['image'+n];slot.classList.add('has-image')}else{img.removeAttribute('src');slot.classList.remove('has-image')}})}
+
+function render(){
+  ['charName','player','desc','history','moves','equipment','inventory','heroPoints','life','xp','state1','state2','state3','masterNotes','attack1','attack2','attack3','attacksNotes','spells','notes'].forEach(k=>{if($(k))$(k).value=data[k]??''});
+  let a=$('attrs');a.innerHTML='';
+  data.attrs.forEach((x,i)=>{
+    let d=document.createElement('div');d.className='attr';
+    d.innerHTML=`<div class="attr-title"><input data-k="name" data-i="${i}" value="${esc(x.name)}"><input data-k="num" data-i="${i}" value="${esc(x.num)}" type="text"></div><div class="feats">${x.feats.map((f,j)=>`<div class="feat"><b>${j+1}</b><input data-k="feat" data-i="${i}" data-j="${j}" value="${esc(f)}"></div>`).join('')}</div>`;
+    a.appendChild(d);
+  });
+  ['1','2'].forEach(n=>{
+    let slot=$('slot'+n),img=$('img'+n);
+    if(data['image'+n]){img.src=data['image'+n];slot.classList.add('has-image')}
+    else{img.removeAttribute('src');slot.classList.remove('has-image')}
+  });
+}
+
 function esc(s){return String(s??'').replaceAll('&','&amp;').replaceAll('"','&quot;').replaceAll('<','&lt;').replaceAll('>','&gt;')}
-function collect(){['charName','player','desc','history','moves','equipment','inventory','heroPoints','life','xp','state1','state2','state3','masterNotes','attack1','attack2','attack3','attacksNotes','spells','notes'].forEach(k=>{if($(k))data[k]=$(k).value});document.querySelectorAll('[data-k]').forEach(el=>{let i=+el.dataset.i,k=el.dataset.k;if(k==='feat')data.attrs[i].feats[+el.dataset.j]=el.value;else data.attrs[i][k]=el.value})}
-function save(){collect();localStorage.setItem(KEY,JSON.stringify(data));alert('Ficha salva!')}
-$('saveBtn').onclick=save;document.addEventListener('input',e=>{if(e.target.matches('input,textarea')){collect();localStorage.setItem(KEY,JSON.stringify(data))}});
-['1','2'].forEach(n=>{let input=$('image'+n);input.addEventListener('change',e=>{let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{data['image'+n]=r.result;localStorage.setItem(KEY,JSON.stringify(data));render()};r.readAsDataURL(f)});$('slot'+n).addEventListener('click',e=>{if(e.target.classList.contains('remove-img'))return;input.click()});document.querySelector('.remove-img[data-slot="'+n+'"]').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();data['image'+n]='';input.value='';localStorage.setItem(KEY,JSON.stringify(data));render()})});
-$('clearBtn').onclick=()=>{if(confirm('Apagar todos os dados desta ficha?')){localStorage.removeItem(KEY);data=structuredClone(blank);data.attrs=structuredClone(defaults);render()}};
-$('masterBtn').onclick=()=>{let p=prompt('Senha do Mestre:');if(p==='147258'){$('masterPanel').classList.toggle('show')}else if(p!==null)alert('Senha incorreta.')};render();
+
+function collect(){
+  ['charName','player','desc','history','moves','equipment','inventory','heroPoints','life','xp','state1','state2','state3','masterNotes','attack1','attack2','attack3','attacksNotes','spells','notes'].forEach(k=>{if($(k))data[k]=$(k).value});
+  document.querySelectorAll('[data-k]').forEach(el=>{
+    let i=+el.dataset.i,k=el.dataset.k;
+    if(k==='feat')data.attrs[i].feats[+el.dataset.j]=el.value;
+    else data.attrs[i][k]=el.value;
+  });
+}
+
+function saveLocal(){
+  collect();
+  localStorage.setItem(KEY,JSON.stringify(data));
+}
+
+let syncTimer=null;
+function queueSync(){
+  saveLocal();
+  clearTimeout(syncTimer);
+  syncTimer=setTimeout(()=>saveRemote(false),900);
+}
+
+async function saveRemote(showAlert=true){
+  saveLocal();
+  if(!characterId) characterId=crypto.randomUUID();
+  localStorage.setItem(IDKEY,characterId);
+
+  const payload={
+    character_id:characterId,
+    data:data,
+    updated_at:new Date().toISOString()
+  };
+
+  const {error}=await sb.from('characters').upsert(payload,{onConflict:'character_id'});
+  if(error){
+    console.error('Supabase:',error);
+    if(showAlert) alert('Ficha salva neste dispositivo, mas não foi possível sincronizar com o banco.');
+    return false;
+  }
+  if(showAlert) alert('Ficha salva e sincronizada com o banco!');
+  return true;
+}
+
+async function loadRemote(){
+  if(!characterId) return;
+  const {data:rows,error}=await sb.from('characters').select('character_id,data').eq('character_id',characterId).limit(1);
+  if(error){console.error('Supabase:',error);return}
+  if(rows&&rows[0]&&rows[0].data){
+    data=Object.assign({},blank,rows[0].data);
+    if(!Array.isArray(data.attrs))data.attrs=structuredClone(defaults);
+    localStorage.setItem(KEY,JSON.stringify(data));
+    render();
+  }
+}
+
+$('saveBtn').onclick=()=>saveRemote(true);
+
+document.addEventListener('input',e=>{
+  if(e.target.matches('input,textarea')) queueSync();
+});
+
+['1','2'].forEach(n=>{
+  let input=$('image'+n);
+  input.addEventListener('change',e=>{
+    let f=e.target.files[0];if(!f)return;
+    let r=new FileReader();
+    r.onload=()=>{data['image'+n]=r.result;saveLocal();render();saveRemote(false)};
+    r.readAsDataURL(f);
+  });
+  $('slot'+n).addEventListener('click',e=>{if(e.target.classList.contains('remove-img'))return;input.click()});
+  document.querySelector('.remove-img[data-slot="'+n+'"]').addEventListener('click',e=>{
+    e.preventDefault();e.stopPropagation();data['image'+n]='';input.value='';saveLocal();render();saveRemote(false);
+  });
+});
+
+$('clearBtn').onclick=()=>{
+  if(confirm('Apagar todos os dados desta ficha?')){
+    localStorage.removeItem(KEY);
+    data=structuredClone(blank);
+    data.attrs=structuredClone(defaults);
+    render();
+    if(characterId) saveRemote(false);
+  }
+};
+
+$('masterBtn').onclick=()=>{
+  let p=prompt('Senha do Mestre:');
+  if(p==='147258')$('masterPanel').classList.toggle('show');
+  else if(p!==null)alert('Senha incorreta.')
+};
+
+render();
+loadRemote();
 </script></body></html>
